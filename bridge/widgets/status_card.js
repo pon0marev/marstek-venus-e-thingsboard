@@ -1,4 +1,5 @@
 var timer, lastTs, el, gradId;
+var STALE_SEC = 180;
 
 function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
@@ -6,43 +7,55 @@ function esc(s) {
     });
 }
 
-var GREEN = '#4caf50', ORANGE = '#ff9800', RED = '#f44336', BLUE = '#2196f3', GREY = '#90a4ae';
+var CHARGE, WARM, CORAL, MUTED;
 
 function state(kind, v) {
     if (kind === 'grid') {
-        return v > 0 ? { color: RED, hint: 'Exporting to grid' } :
-               v < 0 ? { color: GREEN, hint: 'Charging' } : { color: GREY, hint: 'Idle' };
-    }
-    if (kind === 'soc') {
-        return { color: v <= 20 ? RED : v <= 40 ? ORANGE : GREEN, hint: v <= 10 ? 'Very low' : v <= 20 ? 'Low' : v >= 99 ? 'Full' : '' };
+        return v > 0 ? { color: WARM, hint: 'To grid' } : v < 0 ? { color: CHARGE, hint: 'Charging' } : { color: MUTED, hint: 'Idle' };
     }
     if (kind === 'temp') {
-        return v < 5 ? { color: BLUE, hint: 'Cold' } : v < 40 ? { color: GREEN, hint: 'Normal' } :
-               v < 50 ? { color: ORANGE, hint: 'Warm' } : { color: RED, hint: 'Hot' };
+        return v < 5 ? { color: MUTED, hint: 'Cold' } : v < 40 ? { color: MUTED, hint: 'Normal' } :
+               v < 50 ? { color: WARM, hint: 'Warm' } : { color: CORAL, hint: 'Hot' };
     }
     return null;
 }
 
+function lastOf(name) {
+    var row = (self.ctx.data || []).filter(function(d) { return d.dataKey && d.dataKey.name === name; })[0];
+    return row && row.data && row.data.length ? row.data[row.data.length - 1][1] : null;
+}
+
 function age() {
     if (!lastTs) { return; }
-    var sec = Math.round((Date.now() - lastTs) / 1000);
+    var sec = Math.max(0, Math.round((Date.now() - lastTs) / 1000));
+    var stale = sec > STALE_SEC;
     var node = el.querySelector('.mv-updated');
-    node.textContent = sec > 180 ? 'no data for ' + Math.round(sec / 60) + ' min' : '';
+    el.querySelector('.mv-card').classList.toggle('stale', stale);
+    if (stale) {
+        node.textContent = 'no data for ' + Math.round(sec / 60) + ' min';
+    } else if ((self.ctx.settings || {}).showAge) {
+        node.textContent = 'updated ' + (sec < 60 ? sec + ' s' : Math.round(sec / 60) + ' min') + ' ago';
+    } else {
+        node.textContent = '';
+    }
 }
 
 self.onInit = function() {
     var s = self.ctx.settings || {};
+    var light = s.theme === 'light';
+    CHARGE = light ? '#0B7A53' : '#6EE7A0';
+    WARM = light ? '#A85A12' : '#E8B170';
+    CORAL = light ? '#B23A22' : '#D9694F';
+    MUTED = light ? '#5E6266' : '#8A8F94';
     gradId = 'mvg' + Math.random().toString(36).slice(2);
     el = self.ctx.$container[0].querySelector('.mv-root');
     el.innerHTML =
-        '<div class="mv-card" style="--accent:' + esc(s.color || '#2196f3') + '">' +
-        '<div class="mv-icon"><span class="material-icons">' + esc(s.icon || 'bolt') + '</span></div>' +
+        '<div class="mv-card' + (s.gear ? ' has-gear' : '') + (s.theme === 'light' ? ' light' : '') + '" style="--accent:' + esc(s.color || '#2196f3') + '">' +
         '<div class="mv-body">' +
         '<div class="mv-head"><span class="mv-label">' + esc(s.label) + '</span><span class="mv-updated"></span></div>' +
         '<div class="mv-main"><span class="mv-value">–</span><span class="mv-unit">' + esc(s.units) + '</span>' +
-        '<span class="mv-hint"></span></div></div>' +
-        '<svg class="mv-spark" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>' +
-        (s.kind === 'soc' ? '<div class="mv-bar"><div class="mv-fill"></div></div>' : '') +
+        '<span class="mv-hint">' + esc(s.hint) + '</span></div></div>' +
+        (s.spark ? '<svg class="mv-spark" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>' : '') +
         (s.gear ? '<button type="button" class="mv-gear" title="Settings"><span class="material-icons">settings</span></button>' : '') +
         '</div>';
     timer = setInterval(age, 15000);
@@ -72,7 +85,7 @@ self.onInit = function() {
     }
 };
 
-function spark(points) {
+function spark(points, range) {
     var svg = el.querySelector('.mv-spark');
     var vals = [];
     var n = Math.min(points.length, 80);
@@ -84,10 +97,9 @@ function spark(points) {
         vals.push(sum / chunk.length);
     }
     if (vals.length < 2) { svg.innerHTML = ''; return; }
-    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-    var span = hi - lo || 1;
+    var lo = range[0], span = range[1] - range[0];
     var xy = vals.map(function(v, i) {
-        var y = hi === lo ? 15 : 27 - ((v - lo) / span) * 24;
+        var y = 27 - Math.max(0, Math.min(1, (v - lo) / span)) * 24;
         return (i / (vals.length - 1) * 100).toFixed(2) + ',' + y.toFixed(2);
     });
     svg.innerHTML =
@@ -111,26 +123,38 @@ self.onDataUpdated = function() {
     var shown = raw;
     if (isNum) {
         var v = s.divisor ? num / s.divisor : num;
-        shown = s.decimals != null ? v.toFixed(s.decimals) : String(v);
+        // grid power direction is spelled out by the hint, so show the size only
+        var size = s.kind === 'grid' ? Math.abs(v) : v;
+        shown = s.decimals != null ? size.toFixed(s.decimals) : String(size);
         num = v;
         var st = state(s.kind, v);
+        // A full battery on the mains shows 0 W too, so an outage is spelled out.
+        var out = s.kind === 'grid' && !v && lastOf('mains') !== null && Number(lastOf('mains')) === 0;
+        if (out) {
+            shown = 'Off';
+            st = { color: CORAL, hint: '' };
+        }
+        card.classList.toggle('out', out);
+        el.querySelector('.mv-unit').textContent = out ? '' : (s.units || '');
         if (st) {
             el.querySelector('.mv-hint').textContent = st.hint;
             card.style.setProperty('--accent', st.color);
         }
     }
-    el.querySelector('.mv-value').textContent = shown;
-    if (s.kind === 'soc' && isNum) {
-        var fill = el.querySelector('.mv-fill');
-        fill.style.width = Math.max(0, Math.min(100, num)) + '%';
+    var valueNode = el.querySelector('.mv-value');
+    if (valueNode.textContent !== '–' && valueNode.textContent !== String(shown)) {
+        valueNode.classList.remove('flash');
+        void valueNode.offsetWidth;
+        valueNode.classList.add('flash');
     }
-    if (isNum) {
+    valueNode.textContent = shown;
+    if (isNum && s.spark) {
         var series = [];
         d.forEach(function(p) {
             var x = Number(p[1]);
             if (!isNaN(x)) { series.push(s.divisor ? x / s.divisor : x); }
         });
-        spark(series);
+        spark(series, s.spark);
     }
     lastTs = last[0];
     age();
@@ -141,7 +165,7 @@ self.onDestroy = function() {
 };
 
 self.typeParameters = function() {
-    return { maxDatasources: 1, maxDataKeys: 1, dataKeysOptional: false };
+    return { maxDatasources: 1, maxDataKeys: 2, dataKeysOptional: false };
 };
 
 self.actionSources = function() {

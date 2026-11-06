@@ -17,13 +17,22 @@ PORT = int(os.environ.get("MARSTEK_PORT", "30000"))
 INTERVAL = float(os.environ.get("POLL_INTERVAL", "60"))
 TB_URL = os.environ["TB_URL"].rstrip("/")
 TB_ACCESS_TOKEN = os.environ.get("TB_ACCESS_TOKEN")
+TB_API_KEY = os.environ.get("TB_API_KEY")
 TB_USER = os.environ.get("TB_USER")
 TB_PASSWORD = os.environ.get("TB_PASSWORD")
 DEVICE_NAME = os.environ.get("TB_DEVICE_NAME", "Marstek Venus E")
 ALLOW_DISCHARGE = os.environ.get("ALLOW_DISCHARGE", "false").lower() == "true"
 STATE_FILE = os.environ.get("STATE_FILE", "/data/state.json")
 TZ = ZoneInfo(os.environ.get("TZ", "UTC"))
-ENERGY_KEY = "es_total_grid_input_energy"
+# counter key -> telemetry prefix, section of the state file (None keeps the original top-level keys)
+ENERGY_COUNTERS = {"es_total_grid_input_energy": ("grid_input", None),
+                   "battery_output_total": ("battery_output", "battery_output")}
+OUTPUT_MAX_GAP = 300
+# mains detection: grid power that counts as a flow, one step of the stored energy counter,
+# and how long the stored energy has to hold still before the mains are taken to be back
+MAINS_FLOW_W = 2
+MAINS_STEP_WH = 4
+MAINS_FLAT_SEC = 25 * 60
 
 FAST_METHODS = ["ES.GetStatus", "ES.GetMode", "Bat.GetStatus"]
 SLOW_METHODS = ["Wifi.GetStatus"]
@@ -50,14 +59,14 @@ def http(method, path, body=None, token=None, timeout=15):
         headers={"Content-Type": "application/json"},
     )
     if token:
-        req.add_header("X-Authorization", "Bearer " + token)
+        req.add_header("X-Authorization", ("ApiKey " if TB_API_KEY else "Bearer ") + token)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         raw = r.read()
         return json.loads(raw) if raw else None
 
 
 def provision():
-    jwt = http("POST", "/api/auth/login", {"username": TB_USER, "password": TB_PASSWORD})["token"]
+    jwt = TB_API_KEY or http("POST", "/api/auth/login", {"username": TB_USER, "password": TB_PASSWORD})["token"]
     try:
         dev = http("GET", "/api/tenant/devices?deviceName=" + urllib.parse.quote(DEVICE_NAME), token=jwt)
     except urllib.error.HTTPError as e:
@@ -90,6 +99,13 @@ def call(sock, method, params, retries=3):
     return None
 
 
+def signed16(value):
+    """The battery sends power as an unsigned 16-bit number, so -16 W arrives as 65520."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    return value - 65536 if 32767 < value <= 65535 else value
+
+
 def poll(sock, cycle):
     telemetry = {}
     methods = FAST_METHODS + (SLOW_METHODS if cycle % SLOW_EVERY == 0 else [])
@@ -100,7 +116,10 @@ def poll(sock, cycle):
             prefix = method.split(".")[0].lower()
             for k, v in result.items():
                 if k not in SKIP_KEYS and isinstance(v, (int, float, str, bool)):
-                    telemetry["%s_%s" % (prefix, k)] = v
+                    telemetry["%s_%s" % (prefix, k)] = signed16(v) if k.endswith("_power") else v
+    if isinstance(telemetry.get("es_offgrid_power"), (int, float)):
+        # the sockets only give power out: a few watts below zero is meter noise when the mains switch over
+        telemetry["es_offgrid_power"] = max(0, telemetry["es_offgrid_power"])
     for key, name in (("es_mode", "mode"), ("es_ongrid_power", "power"), ("es_bat_soc", "soc")):
         if key in telemetry:
             latest[name] = telemetry[key]
@@ -179,11 +198,12 @@ def allow_discharge():
     return load_state().get("settings", {}).get("allow_discharge", ALLOW_DISCHARGE)
 
 
-def period_energy(current):
+def period_energy(current, prefix="grid_input", section=None):
     now = datetime.now(TZ)
     result = {}
 
-    def apply(state):
+    def apply(root):
+        state = root.setdefault(section, {}) if section else root
         last = state.get("last", current)
         for name, label in (("day", now.strftime("%Y-%m-%d")), ("month", now.strftime("%Y-%m"))):
             if state.get(name) != label:
@@ -192,8 +212,8 @@ def period_energy(current):
             if current < state[name + "_base"]:
                 state[name + "_base"] = current
         state["last"] = current
-        result["grid_input_day"] = current - state["day_base"]
-        result["grid_input_month"] = current - state["month_base"]
+        result[prefix + "_day"] = current - state["day_base"]
+        result[prefix + "_month"] = current - state["month_base"]
 
     update_state(apply)
     return result
@@ -254,9 +274,40 @@ def set_all_manual(sock, params):
             update_state(lambda st: st.setdefault("rules", {}).pop(slot, None))
         else:
             update_state(lambda st: st.setdefault("rules", {}).update({slot: rule}))
-    update_state(lambda st: st.update(command={"type": "manual", "at": int(time.time() * 1000)}))
+
+    def done(st):
+        st["command"] = {"type": "manual", "at": int(time.time() * 1000)}
+        if params.get("clearOthers"):
+            st["rules_exact"] = True
+
+    update_state(done)
     latest["mode"] = "Manual"
     return {"set_result": True, "written": applied}
+
+
+def charge_rule(power):
+    return {"slot": 0, "start": "00:00", "end": "23:59", "days": list(range(7)), "power": -power, "enable": True}
+
+
+def charge_power(state):
+    """The battery has no charge power setting, only a power per Manual window.
+
+    So a charge power is one window that charges all day, every day. It counts as set only when
+    that window is the whole schedule: rules_exact says every other slot was cleared from here.
+    """
+    rules = state.get("rules", {})
+    power = -(rules.get("0") or {}).get("power", 0)
+    if latest.get("mode") == "Manual" and state.get("rules_exact") and power > 0 and rules == {"0": charge_rule(power)}:
+        return power
+    return None
+
+
+def set_charge_power(sock, params):
+    power = int(params["power"])
+    if power < 1:
+        raise ValueError("charge power must be at least 1 W")
+    # changing the power rewrites one slot; taking over the schedule clears the other nine as well
+    return set_all_manual(sock, {"windows": [charge_rule(power)], "clearOthers": charge_power(load_state()) is None})
 
 
 DISCHARGE_ERROR = "discharging into the grid is disabled: enable it on the dashboard first"
@@ -266,7 +317,7 @@ EXPORT_MODES = {"Auto", "AI"}
 def get_state():
     state = load_state()
     return {"mode": latest.get("mode"), "power": latest.get("power"), "soc": latest.get("soc"),
-            "allowDischarge": allow_discharge(), "command": state.get("command"),
+            "allowDischarge": allow_discharge(), "command": state.get("command"), "chargePower": charge_power(state),
             "rules": state.get("rules", {}), "device": state.get("device", {})}
 
 
@@ -299,6 +350,8 @@ def handle_rpc(sock, method, params):
         return {"set_result": result.get("set_result")}
     if method == "setManualAll":
         return set_all_manual(sock, params)
+    if method == "setChargePower":
+        return set_charge_power(sock, params)
     if method == "setAllowDischarge":
         value = bool(params["value"])
         update_state(lambda st: st.setdefault("settings", {}).update(allow_discharge=value))
@@ -332,7 +385,8 @@ def handle_rpc(sock, method, params):
             update_state(lambda st: st.setdefault("rules", {}).update({str(value["slot"]): value}))
             update_state(lambda st: st.update(command={"type": "manual", "at": now_ms}))
         else:
-            update_state(lambda st: st.update(command=value))
+            # leaving Manual may drop its windows, and the battery cannot report them
+            update_state(lambda st: st.update(command=value, rules_exact=False))
         latest["mode"] = config["mode"]
     return {"set_result": result.get("set_result")}
 
@@ -363,12 +417,78 @@ def rpc_loop(sock, token):
             print("rpc reply error:", e)
 
 
+def integrate_output(telemetry, now=None):
+    """Battery output in Wh from off-grid power: the battery's own load counter stayed at 0 under load."""
+    if "es_offgrid_power" not in telemetry:
+        return
+    power = max(0.0, float(telemetry["es_offgrid_power"]))
+    now = time.time() if now is None else now
+
+    def apply(root):
+        meter = root.setdefault("output_meter", {})
+        total = meter.get("total", 0.0)
+        if "ts" in meter and 0 < now - meter["ts"] <= OUTPUT_MAX_GAP:
+            total += (meter["power"] + power) / 2 * (now - meter["ts"]) / 3600
+        meter.update(ts=now, power=power, total=total)
+        telemetry["battery_output_total"] = total
+
+    update_state(apply)
+
+
+def detect_mains(telemetry, now=None):
+    """Tell whether the mains are present. The battery does not report it, and a full battery on the mains
+    shows the same 0 W from the grid as a battery in an outage. What differs is the stored energy: without
+    the mains the battery runs its own electronics from it, so it keeps falling, a step every ten minutes."""
+    grid, stored = telemetry.get("es_ongrid_power"), telemetry.get("bat_bat_capacity")
+    now = time.time() if now is None else now
+
+    def number(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    def apply(root):
+        m = root.setdefault("mains", {})
+        on, since = m.get("on"), now
+        if now - m.get("seen", now) > MAINS_FLAT_SEC:
+            # too long without data to know what happened in between: gather the evidence again
+            on = None
+            m.pop("level", None)
+        m["seen"] = now
+        if number(grid) and abs(grid) > MAINS_FLOW_W:
+            on = True
+            if number(stored):
+                m.update(level=stored, level_ts=now)
+        elif number(stored):
+            level = m.get("level")
+            if level is None:
+                m.update(level=stored, level_ts=now)
+            elif stored - level >= MAINS_STEP_WH:
+                on = True  # charged between two polls
+                m.update(level=stored, level_ts=now)
+            elif level - stored >= MAINS_STEP_WH:
+                on = False  # energy left the battery and the grid gave none
+                m.update(level=stored, level_ts=now)
+            elif now - m["level_ts"] >= MAINS_FLAT_SEC:
+                on, since = True, m["level_ts"]  # holding its level, so the grid feeds the electronics
+        if on != m.get("on"):
+            m.update(on=on, since=since)
+        if m.get("on") is not None:
+            telemetry["mains"] = 1 if m["on"] else 0
+            telemetry["mains_since"] = int(m["since"] * 1000)
+
+    update_state(apply)
+
+
 def add_period_energy(telemetry):
-    if ENERGY_KEY in telemetry:
-        try:
-            telemetry.update(period_energy(float(telemetry[ENERGY_KEY])))
-        except Exception as e:
-            print("period energy error:", e)
+    try:
+        integrate_output(telemetry)
+    except Exception as e:
+        print("output meter error:", e)
+    for key, (prefix, section) in ENERGY_COUNTERS.items():
+        if key in telemetry:
+            try:
+                telemetry.update(period_energy(float(telemetry[key]), prefix, section))
+            except Exception as e:
+                print("period energy error:", e)
 
 
 def main():
@@ -405,6 +525,10 @@ def main():
         try:
             telemetry = poll(sock, cycle)
             add_period_energy(telemetry)
+            try:
+                detect_mains(telemetry)
+            except Exception as e:
+                print("mains detection error:", e)
             cycle += 1
             if telemetry:
                 http("POST", "/api/v1/%s/telemetry" % token, telemetry)

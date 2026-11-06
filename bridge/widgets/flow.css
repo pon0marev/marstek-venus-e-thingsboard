@@ -1,0 +1,38 @@
+.mf-root { height: 100%; -webkit-user-select: none; user-select: none; }
+.mf-card {
+  --t: #E8E6E1; --m: #8A8F94; --d: #6a6e72; --c: #D9694F; --dot: rgba(255, 255, 255, .28); --line: rgba(255, 255, 255, .12);
+  height: 100%; box-sizing: border-box; padding: 10px 18px; display: flex; flex-direction: column; justify-content: center; gap: 10px;
+  font-family: 'IBM Plex Sans', Roboto, sans-serif; color: var(--t);
+}
+.mf-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mf-title { font-size: 12px; font-weight: 400; letter-spacing: .14em; text-transform: uppercase; color: var(--m); }
+.mf-status { font-size: 12px; color: var(--m); white-space: nowrap; }
+.mf-diagram { display: flex; align-items: flex-start; }
+.mf-node { flex: none; width: 72px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 19px; }
+.mf-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dot); transition: background .4s, box-shadow .4s; }
+.mf-node.active .mf-dot { background: var(--flow); box-shadow: 0 0 8px var(--flow); }
+.mf-dot { position: relative; }
+.mf-node.active .mf-dot::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 1px solid var(--flow); animation: mf-ring 2.2s ease-out infinite; }
+@keyframes mf-ring { 0% { transform: scale(1); opacity: .9; } 100% { transform: scale(4.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .mf-node.active .mf-dot::after { animation: none; opacity: 0; } }
+.mf-name { font-size: 12px; color: var(--m); }
+.mf-soc { color: var(--t); margin-left: 4px; }
+.mf-link { flex: 1; min-width: 28px; display: flex; flex-direction: column; align-items: center; }
+.mf-watts { height: 19px; font-size: 14px; font-weight: 300; font-variant-numeric: tabular-nums; color: var(--d); white-space: nowrap; }
+.mf-link.on .mf-watts { color: var(--flow); }
+.mf-line { position: relative; width: 100%; height: 1px; margin-top: 3px; overflow: hidden; background: var(--line); }
+.mf-link.on .mf-line::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 72px; left: -72px;
+  background: linear-gradient(90deg, transparent, var(--flow), transparent);
+  animation: mf-forward var(--speed, 2.6s) linear infinite;
+}
+.mf-link.on.reverse .mf-line::after { animation-direction: reverse; }
+.mf-dir { margin-top: 8px; font-size: 12px; color: var(--m); min-height: 15px; white-space: nowrap; }
+@keyframes mf-forward { to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .mf-link.on .mf-line::after { animation: none; left: 0; width: 100%; opacity: .6; } }
+.mf-link.out .mf-watts { color: var(--c); }
+.mf-link.out .mf-line { background: repeating-linear-gradient(90deg, var(--c) 0 4px, transparent 4px 10px); opacity: .75; }
+.mf-node.out .mf-dot { background: transparent; box-shadow: inset 0 0 0 1px var(--c); }
+.mf-card.stale .mf-diagram { opacity: .4; }
+.mf-card.stale .mf-status { color: var(--c); }
+.mf-card.light { --t: #17181A; --m: #5E6266; --d: #8f9296; --c: #B23A22; --dot: rgba(0, 0, 0, .3); --line: rgba(0, 0, 0, .16); }

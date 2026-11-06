@@ -9,7 +9,7 @@ cd solution-template
 NICKNAME=<creator nickname> python3 -I build.py
 ```
 
-Needs the local ThingsBoard from `../docker-compose.yml` (default `http://localhost:8081`, `tenant@thingsboard.org` / `tenant`; override with `TB_URL`, `TB_USER`, `TB_PASSWORD`). Output: `marstek-venus-e-1.0.0.zip` (the template) and `widgets/*.json` (one file per custom widget, for separate Widget uploads).
+Needs the local ThingsBoard from `../docker-compose.yml` (default `http://localhost:8081`, `tenant@thingsboard.org` / `tenant`; override with `TB_URL`, `TB_USER`, `TB_PASSWORD`, or `TB_API_KEY` for tenants without a password, such as Google sign-in). Output: `marstek-venus-e-1.0.0.zip` (the template) and `widgets/*.json` (one file per custom widget, for separate Widget uploads).
 
 ## Contents
 
@@ -20,7 +20,7 @@ Needs the local ThingsBoard from `../docker-compose.yml` (default `http://localh
 ## Open items before publishing
 
 - Creator nickname: widget fqn must be `nickname.widget_fqn` (currently `marstek`)
-- Publish the three widgets first: `marstek.status_card`, `marstek.controls`, `marstek.settings`
+- Publish the custom widgets first: `marstek.status_card`, `marstek.battery`, `marstek.flow`, `marstek.grid_status`, `marstek.controls`, `marstek.settings`
 - Public repository and image for the bridge; replace `REPLACE_WITH_PUBLISHED_BRIDGE_IMAGE` in `content/instructions.md`
 - Ask `iothub@thingsboard.io`: is a Solution Template that needs an external bridge allowed, and how to stop the emulator once a real device is connected
 - Gallery screenshots after installing the template on a fresh tenant

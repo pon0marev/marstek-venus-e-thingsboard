@@ -194,7 +194,9 @@ function detailHtml() {
             (draft.length ? draft.map(winRow).join('') : '<div class="mc-note">No windows yet</div>') +
             '<div class="mc-row mc-between"><label class="mc-check"><input type="checkbox" id="mc-clear"' + (clearOthers ? ' checked' : '') +
             '> Clear all other slots when applying</label>' +
-            '<button type="button" class="mc-btn green" id="mc-apply"><span class="material-icons">check</span>Apply ' + enabled + ' window' + (enabled === 1 ? '' : 's') + '</button></div>';
+            (draft.length ?
+                '<button type="button" class="mc-btn green" id="mc-apply"><span class="material-icons">check</span>Apply ' + enabled + ' window' + (enabled === 1 ? '' : 's') + '</button>' :
+                '<button type="button" class="mc-btn ghost" id="mc-apply"><span class="material-icons">delete_sweep</span>Clear battery schedule</button>') + '</div>';
     }
     var lockedNow = locked(m), isActive = activeMode() === m.id;
     return '<div class="mc-rules-title">' + m.id + ' mode' +
@@ -255,7 +257,12 @@ function applyAll() {
     var ov = overlaps();
     var enabled = windows.filter(function(w) { return w.enable; }).length;
     var exports = windows.some(function(w) { return w.enable && w.power > 0; });
-    confirmThen('Apply ' + enabled + ' window' + (enabled === 1 ? '' : 's') + ' to the battery?',
+    // The list is also empty on a fresh dashboard while the battery holds a schedule made in the Marstek app.
+    var empty = !windows.length;
+    if (empty && !clearOthers) { setMsg('Nothing to apply: add a window first', 'err'); return; }
+    confirmThen(empty ? 'Erase all 10 windows on the battery?' : 'Apply ' + enabled + ' window' + (enabled === 1 ? '' : 's') + ' to the battery?',
+        empty ? 'The list here is empty, so this switches the battery to Manual mode and clears every slot, ' +
+        'including windows created in the Marstek app. They cannot be read back or restored.' :
         'This switches the battery to Manual mode and writes ' + windows.length + ' slot' + (windows.length === 1 ? '' : 's') +
         (clearOthers ? ', clearing all other slots' : '') + '. Existing windows in those slots are replaced.' +
         (exports ? ' At least one window discharges into the grid.' : '') +
@@ -352,6 +359,7 @@ function render() {
 
 self.onInit = function() {
     root = self.ctx.$container[0].querySelector('.mc-root');
+    root.classList.toggle('dark', (self.ctx.settings || {}).theme !== 'light');
     root.innerHTML =
         '<div class="mc-panel"><div class="mc-head"><div class="mc-status"></div>' +
         '<label class="mc-switch" title="When off, nothing can send energy from the battery to the grid">' +

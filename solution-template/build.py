@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "bridge"))
 import dashboard  # noqa: E402
 
 TB_URL = os.environ.get("TB_URL", "http://localhost:8081")
+TB_API_KEY = os.environ.get("TB_API_KEY")
 TB_USER = os.environ.get("TB_USER", "tenant@thingsboard.org")
 TB_PASSWORD = os.environ.get("TB_PASSWORD", "tenant")
 NICKNAME = os.environ.get("NICKNAME", "marstek")
@@ -24,7 +25,7 @@ def http(method, path, body=None, token=None):
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json"})
     if token:
-        req.add_header("X-Authorization", "Bearer " + token)
+        req.add_header("X-Authorization", ("ApiKey " if TB_API_KEY else "Bearer ") + token)
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read() or "null")
 
@@ -126,7 +127,7 @@ def widget_exports():
 
 
 def main():
-    token = http("POST", "/api/auth/login", {"username": TB_USER, "password": TB_PASSWORD})["token"]
+    token = TB_API_KEY or http("POST", "/api/auth/login", {"username": TB_USER, "password": TB_PASSWORD})["token"]
     images = os.path.join(PKG, "images")
     keep = os.listdir(images) if os.path.isdir(images) else []
     saved = {f: open(os.path.join(images, f), "rb").read() for f in keep}

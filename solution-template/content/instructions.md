@@ -35,15 +35,16 @@ docker compose up -d
 
 ### Step 4: Open the dashboard
 
-Open the [main dashboard](${MAIN_DASHBOARD_URL}). Cards refresh every minute. Click a card to see its trend.
+Open the [main dashboard](${MAIN_DASHBOARD_URL}). Cards refresh every minute and turn grey when no data has arrived for 3 minutes. Click a card to see its trend.
 
 ### Using the controls
 
-- The status line shows the active mode and what the battery is doing right now. Click a tile to see what the mode does and how to configure it.
+- Click the **Mode** card to open the **Battery control** page; monitoring stays on the main page. The status line shows the active mode and what the battery is doing right now. Click a tile to see what the mode does and how to configure it.
 - **Auto**, **AI** and **UPS** are switched on with one button. **Passive** charges or discharges at a chosen power for a chosen number of minutes. **Manual** is a weekly schedule of up to 10 windows: add them with **Add window**, edit them in place and press **Apply** to write the whole schedule to the battery in one go. Tick "Clear all other slots" to make the battery schedule match the list exactly.
 - The battery cannot report its own windows, so ThingsBoard remembers what was last applied (device attribute `manual_windows`) and restores it if the bridge is redeployed. Windows created in the Marstek app are not shown until you apply from here.
 - Every command asks for confirmation. Switching modes replaces the current mode and its schedule. A Manual schedule cannot be read back from the battery, so it cannot be restored from ThingsBoard.
-- **Battery settings** open from the gear on the Mode card (firmware 150 or newer) and set the depth of discharge (30-88%), the LED and Bluetooth advertising. The battery cannot report these values back, so the dashboard shows the last value set from it.
+- **Battery settings** open from the gear on the Mode card. **Charge power** there sets how fast the battery charges whenever grid power is available. The battery has no setting for this, only a power per Manual window, so the dashboard writes one window that charges all day, every day, at the chosen power and makes it the whole schedule. Windows created in the Marstek app are erased. To charge at some power for a limited time only, use **Passive**.
+- The same page sets the depth of discharge (30-88%), the LED and Bluetooth advertising; these three need firmware 150 or newer. The battery cannot report these values back, so the dashboard shows the last value set from it.
 - **Allow discharge to grid** is off by default. While it is off, Auto and AI are locked and discharge is unavailable in Passive and Manual. The setting is enforced by the bridge and is remembered across restarts.
 
 ### Notes
@@ -52,6 +53,7 @@ Open the [main dashboard](${MAIN_DASHBOARD_URL}). Cards refresh every minute. Cl
 - Marstek warns that enabling the Local API may disable some built-in features of the device to avoid command conflicts. Give the battery a static IP address and consider a UDP port between 49152 and 65535 instead of the default 30000.
 - To start with discharging allowed, add `ALLOW_DISCHARGE: "true"` to the bridge environment. The dashboard switch overrides it afterwards.
 - Daily and monthly grid input are computed by the bridge from the battery counter and kept in the `bridge-data` volume.
+- The battery does not report whether grid power is present, and a full battery shows the same 0 W from the grid as a battery in an outage. The bridge works it out from the stored energy: without the grid the battery runs its own electronics and keeps losing energy. An outage with nothing plugged in is noticed within about 10 minutes, the return of grid power as soon as the battery starts charging. During an outage the Grid card reads Off and the battery card says since when it has been discharging.
 - The demo data is simulated. Once the bridge sends real telemetry, the same dashboard shows your battery.
 
 For more about dashboards see the [ThingsBoard documentation](${DOCS_BASE_URL}/docs/user-guide/dashboards/).

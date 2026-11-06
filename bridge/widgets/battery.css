@@ -1,0 +1,98 @@
+.mb-root { height: 100%; -webkit-user-select: none; user-select: none; }
+.mb-card {
+  --t: #E8E6E1; --m: #8A8F94; --d: #6a6e72; --c: #D9694F; --line: rgba(255, 255, 255, .08); --warm: #E8B170; --mote: var(--mood);
+  --accent: #6EE7A0; --mood: 110, 231, 160;
+  container-type: size; height: 100%; box-sizing: border-box; padding: 28px 32px 0; position: relative; overflow: hidden;
+  display: flex; flex-direction: column;
+  font-family: 'IBM Plex Sans', Roboto, sans-serif; color: var(--t);
+}
+.mb-card.discharging, .mb-card.draining { --mood: 232, 177, 112; }
+.mb-card.clickable { cursor: pointer; }
+.mb-head, .mb-main, .mb-runtime, .mb-track, .mb-foot { position: relative; z-index: 3; }
+
+/* Light on the wall behind the battery: it reaches nothing at the widget edges, so there is no line to see. */
+.mb-halo { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s ease; pointer-events: none; }
+.mb-halo-green { background: radial-gradient(ellipse 47% 45% at 51% 54%,
+  rgba(84, 206, 150, .48) 0%, rgba(84, 206, 150, .432) 30%,
+  rgba(44, 160, 124, .326) 52%, rgba(44, 160, 124, .202) 68%,
+  rgba(0, 105, 92, .096) 84%, rgba(0, 105, 92, .029) 94%, rgba(0, 105, 92, 0) 100%); }
+.mb-halo-warm { background: radial-gradient(ellipse 47% 45% at 51% 54%,
+  rgba(232, 177, 112, .24) 0%, rgba(232, 177, 112, .216) 30%,
+  rgba(176, 120, 70, .163) 52%, rgba(176, 120, 70, .101) 68%,
+  rgba(110, 70, 40, .048) 84%, rgba(110, 70, 40, .014) 94%, rgba(110, 70, 40, 0) 100%); }
+.mb-card.idle .mb-halo-green { opacity: .75; }
+.mb-card.charging .mb-halo-green { opacity: 1; animation: mb-breathe 4s ease-in-out infinite; }
+.mb-card.discharging .mb-halo-warm { opacity: 1; animation: mb-ember 6s ease-in-out infinite; }
+.mb-card.draining .mb-halo-warm { opacity: .65; }
+@keyframes mb-breathe { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
+@keyframes mb-ember { 0%, 100% { filter: brightness(1); } 35% { filter: brightness(.82); } 70% { filter: brightness(1.08); } }
+.mb-floor { position: absolute; left: 0; right: 0; bottom: 0; height: 24%; background: radial-gradient(50% 42% at 54% 34%, rgba(0, 0, 0, .55), transparent); pointer-events: none; }
+
+/* One soft flash when the state changes. */
+.mb-bloom { position: absolute; inset: 0; opacity: 0; pointer-events: none; background: radial-gradient(ellipse 47% 45% at 51% 54%, rgba(var(--mood), .28), transparent); }
+.mb-card.bloom .mb-bloom { animation: mb-bloom 1.6s ease-out; }
+@keyframes mb-bloom { 0% { opacity: 0; } 22% { opacity: 1; } 100% { opacity: 0; } }
+
+/* Motes drift up while charging and settle down while the battery gives energy away. */
+.mb-motes { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s ease; pointer-events: none; }
+.mb-card.charging .mb-motes, .mb-card.discharging .mb-motes { opacity: 1; }
+.mb-mote { position: absolute; bottom: 12%; width: 3px; height: 3px; border-radius: 50%; opacity: 0; background: rgb(var(--mote)); box-shadow: 0 0 8px 1px rgba(var(--mote), .8); }
+.mb-card.charging .mb-mote { animation: mb-rise var(--t) linear var(--d) infinite; }
+.mb-card.discharging .mb-mote { animation: mb-rise var(--t) linear var(--d) infinite reverse; }
+@keyframes mb-rise { 0% { transform: translateY(0); opacity: 0; } 12% { opacity: .9; } 78% { opacity: .55; } 100% { transform: translateY(-56cqh); opacity: 0; } }
+
+.mb-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mb-label { font-size: 12px; font-weight: 400; letter-spacing: .14em; text-transform: uppercase; color: var(--m); }
+.mb-updated { font-size: 12px; color: var(--c); white-space: nowrap; }
+.mb-main { display: flex; align-items: baseline; gap: 6px; margin-top: 10px; line-height: 1; white-space: nowrap; }
+.mb-value { font-size: clamp(96px, 27cqw, 180px); font-weight: 200; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.mb-unit { font-size: 28px; font-weight: 300; color: var(--m); }
+.mb-hint { margin-left: 12px; font-size: 14px; font-weight: 400; letter-spacing: .04em; color: var(--c); }
+.mb-runtime { margin-top: 10px; min-height: 40px; font-size: 30px; font-weight: 300; line-height: 40px; white-space: nowrap; transition: color .6s; }
+.mb-runtime.alert { color: var(--c); }
+
+.mb-track { height: 3px; margin-top: 18px; background: var(--line); }
+.mb-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; overflow: visible; background: var(--accent); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent); transition: width 1s cubic-bezier(.22, 1, .36, 1), background .6s ease; }
+.mb-fill::after { content: ''; position: absolute; right: -3px; top: -2px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px 3px color-mix(in srgb, var(--accent) 70%, transparent); animation: mb-tip 3.2s ease-in-out infinite; }
+@keyframes mb-tip { 50% { box-shadow: 0 0 20px 6px color-mix(in srgb, var(--accent) 80%, transparent); } }
+.mb-sheen { position: absolute; left: 0; top: 0; bottom: 0; width: 0; overflow: hidden; opacity: 0; transition: width 1s cubic-bezier(.22, 1, .36, 1), opacity .6s; }
+.mb-sheen::after { content: ''; position: absolute; top: 0; bottom: 0; width: 90px; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .9), transparent); animation: mb-sheen 2.4s linear infinite; }
+.mb-card.charging .mb-sheen, .mb-card.discharging .mb-sheen { opacity: 1; }
+.mb-card.discharging .mb-sheen::after { animation-direction: reverse; }
+@keyframes mb-sheen { from { left: -90px; } to { left: 100%; } }
+.mb-card.discharging .mb-fill, .mb-card.draining .mb-fill { --accent: var(--warm); }
+.mb-marker { display: none; position: absolute; top: -5px; bottom: -5px; width: 1px; background: var(--c); }
+.mb-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 14px; font-weight: 400; color: var(--m); white-space: nowrap; }
+.mb-foot-value { color: var(--t); font-variant-numeric: tabular-nums; }
+
+.mb-device { position: absolute; left: 50%; bottom: 8px; z-index: 2; transform: translateX(-50%); height: min(calc(100cqh - 372px), calc(72cqw * 1060 / 800)); aspect-ratio: 800 / 1060; }
+.mb-img { position: relative; display: block; width: 100%; height: 100%; }
+.mb-led { position: absolute; width: 1.3%; height: .24%; margin: -.12% 0 0 -.65%; border-radius: 1px; background: rgb(var(--mood)); box-shadow: 0 0 5px 1px rgba(var(--mood), .8); opacity: .8; transition: background .8s, box-shadow .8s; }
+.mb-card.idle .mb-led, .mb-card.draining .mb-led { animation: mb-led-rest 5s ease-in-out var(--d) infinite; }
+.mb-card.charging .mb-led, .mb-card.discharging .mb-led { animation: mb-led-run 1.5s ease-in-out var(--d) infinite; }
+.mb-card.discharging .mb-led { animation-direction: reverse; }
+@keyframes mb-led-rest { 50% { opacity: .35; } }
+@keyframes mb-led-run { 0%, 100% { opacity: .15; } 40% { opacity: 1; box-shadow: 0 0 10px 2px rgba(var(--mood), 1); } }
+
+.mb-card.stale { --accent: var(--m); }
+.mb-card.stale .mb-halo, .mb-card.stale .mb-motes { opacity: 0; animation: none; }
+.mb-card.stale .mb-led { opacity: 0; animation: none; }
+.mb-card.stale .mb-fill::after, .mb-card.stale .mb-sheen { animation: none; opacity: 0; }
+.mb-card.stale .mb-value, .mb-card.stale .mb-runtime, .mb-card.stale .mb-foot-value { color: var(--d); }
+.mb-card.stale .mb-img { filter: grayscale(1) brightness(.75); transition: filter 1.2s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mb-halo, .mb-led, .mb-mote, .mb-sheen::after, .mb-fill::after, .mb-bloom { animation: none !important; }
+  .mb-motes { display: none; }
+}
+
+/* Day: a black object on a warm wall. The wall lights up instead of the room. */
+.mb-card.light { --t: #17181A; --m: #5E6266; --d: #8f9296; --c: #B23A22; --line: rgba(0, 0, 0, .1); --warm: #A85A12; }
+.mb-card.light.charging, .mb-card.light.idle { --mote: 11, 122, 83; }
+.mb-card.light.discharging, .mb-card.light.draining { --mote: 168, 90, 18; }
+.mb-card.light .mb-value { font-weight: 300; }
+.mb-card.light .mb-runtime { font-weight: 400; }
+.mb-card.light .mb-halo-green { background: radial-gradient(ellipse 47% 45% at 51% 54%, rgba(196, 240, 214, .5) 0%, rgba(196, 240, 214, .44) 30%, rgba(168, 226, 196, .3) 52%, rgba(168, 226, 196, .18) 68%, rgba(168, 226, 196, .08) 84%, rgba(168, 226, 196, 0) 100%); }
+.mb-card.light .mb-halo-warm { background: radial-gradient(ellipse 47% 45% at 51% 54%, rgba(250, 222, 186, .5) 0%, rgba(250, 222, 186, .44) 30%, rgba(244, 206, 160, .3) 52%, rgba(244, 206, 160, .18) 68%, rgba(244, 206, 160, .08) 84%, rgba(244, 206, 160, 0) 100%); }
+.mb-card.light .mb-floor { background: radial-gradient(34% 40% at 51% 62%, rgba(23, 24, 26, .36), rgba(23, 24, 26, .1) 60%, transparent); }
+.mb-card.light .mb-bloom { background: radial-gradient(ellipse 47% 45% at 51% 54%, rgba(255, 255, 255, .6), transparent); }

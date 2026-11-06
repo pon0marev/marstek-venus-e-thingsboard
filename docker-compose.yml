@@ -67,6 +67,9 @@ services:
       TB_URL: http://thingsboard:8080
       TB_USER: ${TB_USER:-tenant@thingsboard.org}
       TB_PASSWORD: ${TB_PASSWORD:-tenant}
+      TB_API_KEY: ${TB_API_KEY:-}
+      TB_GRID_DEVICE: ${TB_GRID_DEVICE:-}
+      TB_GRID_KEY: ${TB_GRID_KEY:-power}
       TB_DEVICE_NAME: ${TB_DEVICE_NAME:-Marstek Venus E}
     volumes:
       - bridge-data:/data

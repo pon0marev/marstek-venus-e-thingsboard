@@ -1,0 +1,15 @@
+.mg-root { height: 100%; -webkit-user-select: none; user-select: none; }
+.mg-card {
+  height: 100%; box-sizing: border-box; padding: 8px 16px; border-radius: 12px; display: flex; align-items: center; gap: 16px;
+  background: #fff; border: 1px solid rgba(0, 0, 0, .08); box-shadow: 0 1px 4px rgba(0, 0, 0, .05);
+  font-family: Roboto, sans-serif; color: rgba(0, 0, 0, .87);
+}
+.mg-info { flex: none; display: flex; flex-direction: column; min-width: 150px; }
+.mg-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: rgba(0, 0, 0, .62); }
+.mg-state { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.mg-track { flex: 1; min-width: 0; position: relative; height: 18px; border-radius: 4px; overflow: hidden; background: rgba(0, 0, 0, .06); }
+.mg-seg { position: absolute; top: 0; bottom: 0; }
+.mg-seg.on { background: #66bb6a; }
+.mg-seg.off { background: #ef5350; }
+.mg-legend { flex: none; display: flex; gap: 10px; font-size: 11px; color: rgba(0, 0, 0, .62); white-space: nowrap; }
+.mg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
