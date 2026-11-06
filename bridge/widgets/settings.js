@@ -63,7 +63,7 @@ function renderTheme() {
     root.querySelector('#ms-sun').textContent = sun.polar ? 'No sunrise or sunset today' : 'Sunrise ' + clock(sun.rise) + ' · Sunset ' + clock(sun.set);
 }
 
-function lastSet(v, fmt) { return v == null ? 'not set from here yet' : 'last set from here: ' + fmt(v); }
+function lastSet(v, fmt) { return v == null ? 'not recorded here yet' : 'last recorded here: ' + fmt(v); }
 
 function renderCharge() {
     var now = st ? st.chargePower : null;
@@ -114,12 +114,15 @@ self.onInit = function() {
         '<div class="ms-card"><b>Charge power' + help('How fast the battery charges whenever grid power is available. The battery has no such setting, only a power per Manual window, so this writes one window that charges all day, every day, and makes it the whole schedule. Windows created on the Battery control page or in the Marstek app are erased, and changes made in the app afterwards are not seen here.') + '</b>' +
         '<span class="ms-hint" id="ms-charge-hint"></span><div class="ms-ctl"><input type="range" id="ms-charge" min="100" max="' + maxPower() + '" step="100">' +
         '<span class="ms-val wide" id="ms-charge-val"></span><button type="button" class="ms-btn" id="ms-charge-apply">Apply</button></div></div>' +
-        '<div class="ms-card"><b>Depth of discharge' + help('Lowest charge level the battery may reach, 30-88% (88 is the default). Lower values keep a reserve. Needs battery firmware 150 or newer. The battery cannot report this value, so the last value set from this dashboard is shown.') + '</b>' +
+        '<div class="ms-card"><b>Depth of discharge' + help('Lowest charge level the battery may reach, 30-88% (88 is the default). Lower values keep a reserve. ' +
+            'Apply sends the value to the battery (Marstek documents this for firmware 150 or newer; a Venus E on 148 accepts it). Record only stores it here, for a value set in the Marstek app: ' +
+            'the battery cannot report it, and the reserve on the battery card is drawn from the value recorded here.') + '</b>' +
         '<span class="ms-hint" id="ms-dod-hint"></span><div class="ms-ctl"><input type="range" id="ms-dod" min="30" max="88" value="88">' +
-        '<span class="ms-val" id="ms-dod-val">88%</span><button type="button" class="ms-btn" id="ms-dod-apply">Apply</button></div></div>' +
-        '<div class="ms-card"><b>LED' + help('Status lights on the battery. Needs battery firmware 150 or newer. The battery cannot report this value, so the last value set from this dashboard is shown.') + '</b><span class="ms-hint" id="ms-led-hint"></span>' +
+        '<span class="ms-val" id="ms-dod-val">88%</span><button type="button" class="ms-btn" id="ms-dod-apply">Apply</button>' +
+        '<button type="button" class="ms-btn ghost" id="ms-dod-record" title="Store the value without sending it to the battery">Record</button></div></div>' +
+        '<div class="ms-card"><b>LED' + help('Status lights on the battery. Marstek documents this for firmware 150 or newer. The battery cannot report this value, so the last value recorded from this dashboard is shown.') + '</b><span class="ms-hint" id="ms-led-hint"></span>' +
         '<div class="ms-ctl"><div class="ms-seg" id="ms-led"><button type="button" data-v="1">On</button><button type="button" data-v="0">Off</button></div></div></div>' +
-        '<div class="ms-card"><b>Bluetooth' + help('Advertising lets the Marstek app find the battery. Needs battery firmware 150 or newer. The battery cannot report this value, so the last value set from this dashboard is shown.') + '</b><span class="ms-hint" id="ms-ble-hint"></span>' +
+        '<div class="ms-card"><b>Bluetooth' + help('Advertising lets the Marstek app find the battery. Marstek documents this for firmware 150 or newer. The battery cannot report this value, so the last value recorded from this dashboard is shown.') + '</b><span class="ms-hint" id="ms-ble-hint"></span>' +
         '<div class="ms-ctl"><div class="ms-seg" id="ms-ble"><button type="button" data-v="1">On</button><button type="button" data-v="0">Off</button></div></div></div>' +
         '</div>' +
         '<div class="ms-msg"></div></div>';
@@ -137,6 +140,12 @@ self.onInit = function() {
         var v = Number(el.dod.value);
         confirmThen('Set depth of discharge to ' + v + '%?', 'The battery will stop discharging when the remaining charge reaches ' + (100 - v) + '%.',
             function() { run('setDod', { value: v }, 'Depth of discharge ' + v + '%'); });
+    });
+    root.querySelector('#ms-dod-record').addEventListener('click', function() {
+        var v = Number(el.dod.value);
+        confirmThen('Record ' + v + '% without sending it to the battery?',
+            'For a depth of discharge set in the Marstek app. The battery card will show a reserve of ' + (100 - v) + '%.',
+            function() { run('setDod', { value: v, record: true }, 'Depth of discharge ' + v + '% recorded'); });
     });
     [['led', 'setLed', 'LED'], ['ble', 'setBle', 'Bluetooth advertising']].forEach(function(c) {
         root.querySelectorAll('#ms-' + c[0] + ' button').forEach(function(b) {

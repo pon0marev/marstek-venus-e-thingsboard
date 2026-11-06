@@ -27,6 +27,8 @@
 .ms-seg button.on { background: var(--accent); color: var(--on-accent); }
 .ms-btn { border: 0; border-radius: 10px; padding: 8px 14px; font: 500 13px 'IBM Plex Sans', Roboto, sans-serif; color: var(--on-accent); background: var(--accent); cursor: pointer; }
 .ms-btn:disabled { opacity: .5; cursor: default; }
+.ms-btn.ghost { background: var(--soft); color: rgba(var(--ink), .7); }
+.ms-btn.ghost:hover:not(:disabled) { background: var(--hover); filter: none; }
 .ms-note { font-size: 11px; color: rgba(var(--ink), .45); }
 .ms-msg { font-size: 12px; min-height: 16px; color: rgba(var(--ink), .54); }
 .ms-msg.ok { color: var(--ok); }
