@@ -2,6 +2,7 @@ import json
 import os
 import re
 import socket
+import ssl
 import threading
 import time
 import urllib.error
@@ -9,6 +10,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+import paho.mqtt.client as mqtt
 
 import dashboard
 
@@ -20,6 +23,8 @@ TB_ACCESS_TOKEN = os.environ.get("TB_ACCESS_TOKEN")
 TB_API_KEY = os.environ.get("TB_API_KEY")
 TB_USER = os.environ.get("TB_USER")
 TB_PASSWORD = os.environ.get("TB_PASSWORD")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
+MQTT_TLS = os.environ.get("MQTT_TLS", "true").lower() == "true"
 DEVICE_NAME = os.environ.get("TB_DEVICE_NAME", "Marstek Venus E")
 ALLOW_DISCHARGE = os.environ.get("ALLOW_DISCHARGE", "false").lower() == "true"
 STATE_FILE = os.environ.get("STATE_FILE", "/data/state.json")
@@ -43,12 +48,16 @@ MODE_CFG = {"Auto": "auto_cfg", "AI": "ai_cfg", "UPS": "ups_cfg"}
 TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 latest = {}
-device_token = None
 last_attrs = None
 state_lock = threading.Lock()
 poll_now = threading.Event()
 sock_lock = threading.Lock()
 req_counter = 0
+mqtt_client = None
+mqtt_connected = threading.Event()
+rpc_sock = None
+attr_response = {}
+attr_event = threading.Event()
 
 
 def http(method, path, body=None, token=None, timeout=15):
@@ -76,6 +85,51 @@ def provision():
     device_id = dev["id"]["id"]
     token = http("GET", "/api/device/%s/credentials" % device_id, token=jwt)["credentialsId"]
     return jwt, device_id, token
+
+
+def on_mqtt_connect(client, userdata, flags, rc):
+    client.subscribe("v1/devices/me/rpc/request/+")
+    client.subscribe("v1/devices/me/attributes/response/+")
+    mqtt_connected.set()
+
+
+def on_mqtt_message(client, userdata, msg):
+    topic = msg.topic
+    if topic.startswith("v1/devices/me/rpc/request/"):
+        req_id = topic.rsplit("/", 1)[-1]
+        try:
+            payload = json.loads(msg.payload.decode())
+        except ValueError:
+            return
+        print("rpc", payload)
+        try:
+            resp = handle_rpc(rpc_sock, payload.get("method"), payload.get("params") or {})
+        except Exception as e:
+            resp = {"error": str(e)}
+        client.publish("v1/devices/me/rpc/response/%s" % req_id, json.dumps(resp), qos=1)
+    elif topic.startswith("v1/devices/me/attributes/response/"):
+        try:
+            attr_response.update(json.loads(msg.payload.decode()))
+        except ValueError:
+            pass
+        attr_event.set()
+
+
+def mqtt_connect(token):
+    global mqtt_client
+    host = urllib.parse.urlparse(TB_URL).hostname
+    client = mqtt.Client()
+    client.username_pw_set(token)
+    if MQTT_TLS:
+        client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
+    client.on_connect = on_mqtt_connect
+    client.on_message = on_mqtt_message
+    client.connect(host, MQTT_PORT, keepalive=60)
+    client.loop_start()
+    mqtt_client = client
+    if not mqtt_connected.wait(timeout=15):
+        print("warning: MQTT connect/subscribe did not confirm in time")
+    return client
 
 
 def call(sock, method, params, retries=3):
@@ -155,10 +209,10 @@ def state_attributes(state):
 def publish_attributes(state):
     global last_attrs
     attrs = state_attributes(state)
-    if not device_token or attrs == last_attrs:
+    if not mqtt_client or attrs == last_attrs:
         return
     try:
-        http("POST", "/api/v1/%s/attributes" % device_token, attrs)
+        mqtt_client.publish("v1/devices/me/attributes", json.dumps(attrs), qos=1)
         last_attrs = attrs
     except Exception as e:
         print("attributes error:", e)
@@ -166,11 +220,15 @@ def publish_attributes(state):
 
 def restore_state():
     keys = "manual_windows,allow_discharge,dod,led,ble_adv"
+    attr_event.clear()
+    attr_response.clear()
     try:
-        client = (http("GET", "/api/v1/%s/attributes?clientKeys=%s" % (device_token, keys)) or {}).get("client", {})
+        mqtt_client.publish("v1/devices/me/attributes/request/1", json.dumps({"clientKeys": keys}), qos=1)
+        attr_event.wait(timeout=10)
     except Exception as e:
         print("attributes restore error:", e)
         return
+    client = attr_response.get("client", {})
 
     def apply(state):
         if "rules" not in state and client.get("manual_windows") is not None:
@@ -391,32 +449,6 @@ def handle_rpc(sock, method, params):
     return {"set_result": result.get("set_result")}
 
 
-def rpc_loop(sock, token):
-    while True:
-        try:
-            req = http("GET", "/api/v1/%s/rpc?timeout=20000" % token, timeout=30)
-        except urllib.error.HTTPError as e:
-            if e.code != 408:
-                print("rpc poll error:", e)
-                time.sleep(5)
-            continue
-        except Exception as e:
-            print("rpc poll error:", e)
-            time.sleep(5)
-            continue
-        if not req or "id" not in req:
-            continue
-        print("rpc", req)
-        try:
-            resp = handle_rpc(sock, req.get("method"), req.get("params") or {})
-        except Exception as e:
-            resp = {"error": str(e)}
-        try:
-            http("POST", "/api/v1/%s/rpc/%s" % (token, req["id"]), resp, timeout=15)
-        except Exception as e:
-            print("rpc reply error:", e)
-
-
 def integrate_output(telemetry, now=None):
     """Battery output in Wh from off-grid power: the battery's own load counter stayed at 0 under load."""
     if "es_offgrid_power" not in telemetry:
@@ -506,18 +538,20 @@ def main():
         except Exception as e:
             print("dashboard creation failed:", e)
 
-    global device_token
-    device_token = token
-    restore_state()
-    update_state(lambda state: None)
+    global rpc_sock
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("0.0.0.0", PORT))
+    rpc_sock = sock
+
+    mqtt_connect(token)
+    restore_state()
+    update_state(lambda state: None)
+
     try:
-        http("POST", "/api/v1/%s/attributes" % token, device_attributes(sock))
+        mqtt_client.publish("v1/devices/me/attributes", json.dumps(device_attributes(sock)), qos=1)
     except Exception as e:
         print("attributes error:", e)
-    threading.Thread(target=rpc_loop, args=(sock, token), daemon=True).start()
     print("polling %s:%s every %ss" % (HOST, PORT, INTERVAL))
 
     cycle = 0
@@ -531,7 +565,7 @@ def main():
                 print("mains detection error:", e)
             cycle += 1
             if telemetry:
-                http("POST", "/api/v1/%s/telemetry" % token, telemetry)
+                mqtt_client.publish("v1/devices/me/telemetry", json.dumps(telemetry), qos=1)
                 print("sent", telemetry)
             else:
                 print("no response from device")

@@ -71,6 +71,8 @@ services:
       TB_GRID_DEVICE: ${TB_GRID_DEVICE:-}
       TB_GRID_KEY: ${TB_GRID_KEY:-power}
       TB_DEVICE_NAME: ${TB_DEVICE_NAME:-Marstek Venus E}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_TLS: ${MQTT_TLS:-false}
     volumes:
       - bridge-data:/data
 
